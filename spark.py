@@ -93,3 +93,41 @@ def process_latest_state(parsed_df):
                        ))
     
     return latest_state_df
+
+#3)windowed aggregations
+#return customer_value_df, cancelled_count_df
+
+def compute_windowed_aggregations(parsed_df):
+    # Apply watermark and deduplicate
+    deduped_df = (parsed_df
+                  .withWatermark("event_time", WATERMARK_DELAY)
+                  .dropDuplicates(["order_id", "event_time"]))
+    
+    # Aggregation 1: Total order value per customer (non-cancelled)
+    customer_value_df = (deduped_df
+                         .filter(col("event_type") != "CANCELLED")
+                         .withColumn("order_value", col("price") * col("quantity"))
+                         .groupBy(
+                             window(col("event_time"), "5 minutes"),
+                             col("customer_id")
+                         )
+                         .agg(_sum("order_value").alias("total_order_value"))
+                         .select(
+                             col("window.start").alias("window_start"),
+                             col("window.end").alias("window_end"),
+                             col("customer_id"),
+                             col("total_order_value")
+                         ))
+    
+    # Aggregation 2: Count of cancelled orders per window
+    cancelled_count_df = (deduped_df
+                          .filter(col("event_type") == "CANCELLED")
+                          .groupBy(window(col("event_time"), "5 minutes"))
+                          .agg(count("*").alias("cancelled_count"))
+                          .select(
+                              col("window.start").alias("window_start"),
+                              col("window.end").alias("window_end"),
+                              col("cancelled_count")
+                          ))
+    
+    return customer_value_df, cancelled_count_df
