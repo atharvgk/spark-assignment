@@ -10,8 +10,8 @@ from pyspark.sql.window import Window
 #configuration
 KAFKA_BOOTSTRAP_SERVERS = "localhost:9092"
 KAFKA_TOPIC = "order_events"
-CHECKPOINT_LOCATION = "./output/checkpoint"
-OUTPUT_PATH = "./output"
+CHECKPOINT_BASE_PATH = "./output/checkpoint"
+OUTPUT_BASE_PATH = "./output"
 WATERMARK_DELAY = "10 minutes"
 TRIGGER_INTERVAL = "10 seconds"
 
