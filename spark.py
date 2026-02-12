@@ -131,3 +131,40 @@ def compute_windowed_aggregations(parsed_df):
                           ))
     
     return customer_value_df, cancelled_count_df
+
+#4)Output and storage
+#write latest order state to parquet with checkpointing
+def write_latest_state_stream(latest_state_df):
+    query = (latest_state_df
+             .writeStream
+             .outputMode("append")
+             .format("parquet")
+             .option("path", f"{OUTPUT_BASE_PATH}/latest_orders")
+             .option("checkpointLocation", f"{CHECKPOINT_BASE_PATH}/latest_orders")
+             .trigger(processingTime=TRIGGER_INTERVAL)
+             .start())
+    
+    return query
+#write windowed aggregations to parquet with checkpointing
+def write_aggregation_streams(customer_value_df, cancelled_count_df):
+    # Customer value aggregation
+    customer_query = (customer_value_df
+                      .writeStream
+                      .outputMode("append")
+                      .format("parquet")
+                      .option("path", f"{OUTPUT_BASE_PATH}/aggregations/customer_value")
+                      .option("checkpointLocation", f"{CHECKPOINT_BASE_PATH}/aggregations/customer_value")
+                      .trigger(processingTime=TRIGGER_INTERVAL)
+                      .start())
+    
+    # Cancelled orders count
+    cancelled_query = (cancelled_count_df
+                       .writeStream
+                       .outputMode("append")
+                       .format("parquet")
+                       .option("path", f"{OUTPUT_BASE_PATH}/aggregations/cancelled_orders")
+                       .option("checkpointLocation", f"{CHECKPOINT_BASE_PATH}/aggregations/cancelled_orders")
+                       .trigger(processingTime=TRIGGER_INTERVAL)
+                       .start())
+    
+    return customer_query, cancelled_query
