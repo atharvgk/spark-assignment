@@ -168,3 +168,60 @@ def write_aggregation_streams(customer_value_df, cancelled_count_df):
                        .start())
     
     return customer_query, cancelled_query
+
+def main():
+    print("=" * 80)
+    print("Starting Spark Structured Streaming Application")
+    print("=" * 80)
+    
+    # Initialize Spark
+    spark = create_spark_session()
+    spark.sparkContext.setLogLevel("WARN")
+    
+    print(f"Kafka Bootstrap Servers: {KAFKA_BOOTSTRAP_SERVERS}")
+    print(f"Kafka Topic: {KAFKA_TOPIC}")
+    print(f"Watermark Delay: {WATERMARK_DELAY}")
+    print(f"Trigger Interval: {TRIGGER_INTERVAL}")
+    print(f"Output Path: {OUTPUT_BASE_PATH}")
+    print(f"Checkpoint Path: {CHECKPOINT_BASE_PATH}")
+    print("=" * 80)
+    
+    # Read and parse Kafka stream
+    print("Reading from Kafka...")
+    parsed_df = read_kafka_stream(spark)
+    
+    # Process latest state
+    print("Setting up latest state stream...")
+    latest_state_df = process_latest_state(parsed_df)
+    latest_state_query = write_latest_state_stream(latest_state_df)
+    
+    # Compute windowed aggregations
+    print("Setting up windowed aggregation streams...")
+    customer_value_df, cancelled_count_df = compute_windowed_aggregations(parsed_df)
+    customer_query, cancelled_query = write_aggregation_streams(customer_value_df, cancelled_count_df)
+    
+    print("=" * 80)
+    print("All streaming queries started successfully!")
+    print("=" * 80)
+    print("\nActive Queries:")
+    print(f"  1. Latest Order State: {latest_state_query.name}")
+    print(f"  2. Customer Value Aggregation: {customer_query.name}")
+    print(f"  3. Cancelled Orders Count: {cancelled_query.name}")
+    print("\nPress Ctrl+C to stop the application.")
+    print("=" * 80)
+    
+    # Wait for all queries to terminate
+    try:
+        latest_state_query.awaitTermination()
+    except KeyboardInterrupt:
+        print("\n" + "=" * 80)
+        print("Stopping streaming queries...")
+        print("=" * 80)
+        latest_state_query.stop()
+        customer_query.stop()
+        cancelled_query.stop()
+        spark.stop()
+        print("Application stopped successfully.")
+
+if __name__ == "__main__":
+    main()
