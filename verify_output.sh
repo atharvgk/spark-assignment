@@ -40,19 +40,19 @@ fi
 echo ""
 echo "Checking checkpoint directories..."
 
-if [ -d "./output/checkpoints/latest_orders" ]; then
+if [ -d "./output/checkpoint/latest_orders" ]; then
     echo "✓ Latest orders checkpoint exists"
 else
     echo "✗ Latest orders checkpoint not found"
 fi
 
-if [ -d "./output/checkpoints/aggregations/customer_value" ]; then
+if [ -d "./output/checkpoint/aggregations/customer_value" ]; then
     echo "✓ Customer value checkpoint exists"
 else
     echo "✗ Customer value checkpoint not found"
 fi
 
-if [ -d "./output/checkpoints/aggregations/cancelled_orders" ]; then
+if [ -d "./output/checkpoint/aggregations/cancelled_orders" ]; then
     echo "✓ Cancelled orders checkpoint exists"
 else
     echo "✗ Cancelled orders checkpoint not found"

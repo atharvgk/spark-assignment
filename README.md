@@ -44,7 +44,11 @@ docker compose down -v
 
 Open a new terminal, enter WSL, and execute the following sequence:
 
-1.  Run the Spark application:
+1.  Fix Kafka Hostname (Required for WSL/Docker):
+    ```bash
+    ./fix_kafka_hostname.sh
+    ```
+2.  Run the Spark application:
     ```bash
     ./run_spark.sh
     ```
