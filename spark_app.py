@@ -1,6 +1,6 @@
 from pyspark.sql import SparkSession
 from pyspark.sql.functions import(
-    col,from_json,window,sum as _sum,count,to_timestamp,expr,row_number
+    col,from_json,window,sum as _sum,count,to_timestamp,expr,row_number,struct,to_date
 )
 from pyspark.sql.types import(
     StructType,StructField,StringType,DoubleType,IntegerType,TimestampType
@@ -58,7 +58,7 @@ def read_kafka_stream(spark):
 #maintain the latest state per order_id using aggregation.
 # Returns: DataFrame with latest state per order_id.
 def process_latest_state(parsed_df):
-    from pyspark.sql.functions import max as _max, first, struct
+    from pyspark.sql.functions import max as _max
     
     # Apply watermark and deduplicate
     deduped_df = (parsed_df
@@ -66,31 +66,35 @@ def process_latest_state(parsed_df):
                   .dropDuplicates(["order_id", "event_time"]))
     
     # Group by order_id and get the latest event
-    # We use a 5-minute window to make this compatible with append mode
+    # Fix: Use max(struct(event_time, ...)) to deterministically get the latest row 
+    # instead of non-deterministic first()
     latest_state_df = (deduped_df
                        .groupBy(
                            window(col("event_time"), "5 minutes"),
                            col("order_id")
                        )
                        .agg(
-                           _max("event_time").alias("latest_event_time"),
-                           first("customer_id").alias("customer_id"),
-                           first("product_id").alias("product_id"),
-                           first("event_type").alias("event_type"),
-                           first("quantity").alias("quantity"),
-                           first("price").alias("price")
+                           _max(struct(
+                               col("event_time"),
+                               col("customer_id"),
+                               col("product_id"),
+                               col("event_type"),
+                               col("quantity"),
+                               col("price")
+                           )).alias("latest_struct")
                        )
                        .select(
                            col("window.start").alias("window_start"),
                            col("window.end").alias("window_end"),
                            col("order_id"),
-                           col("latest_event_time").alias("event_time"),
-                           col("customer_id"),
-                           col("product_id"),
-                           col("event_type"),
-                           col("quantity"),
-                           col("price")
-                       ))
+                           col("latest_struct.event_time").alias("event_time"),
+                           col("latest_struct.customer_id").alias("customer_id"),
+                           col("latest_struct.product_id").alias("product_id"),
+                           col("latest_struct.event_type").alias("event_type"),
+                           col("latest_struct.quantity").alias("quantity"),
+                           col("latest_struct.price").alias("price")
+                       )
+                       .withColumn("date", to_date(col("event_time")))) # Add date for partitioning
     
     return latest_state_df
 
@@ -104,6 +108,8 @@ def compute_windowed_aggregations(parsed_df):
                   .dropDuplicates(["order_id", "event_time"]))
     
     # Aggregation 1: Total order value per customer (non-cancelled)
+    # Note: This sums the value of all recognized events. If an order is Updated, 
+    # both the Create and Update values are included in the sum if they fall in the window.
     customer_value_df = (deduped_df
                          .filter(col("event_type") != "CANCELLED")
                          .withColumn("order_value", col("price") * col("quantity"))
@@ -117,7 +123,8 @@ def compute_windowed_aggregations(parsed_df):
                              col("window.end").alias("window_end"),
                              col("customer_id"),
                              col("total_order_value")
-                         ))
+                         )
+                         .withColumn("date", to_date(col("window_start")))) # Add date from window start
     
     # Aggregation 2: Count of cancelled orders per window
     cancelled_count_df = (deduped_df
@@ -128,7 +135,8 @@ def compute_windowed_aggregations(parsed_df):
                               col("window.start").alias("window_start"),
                               col("window.end").alias("window_end"),
                               col("cancelled_count")
-                          ))
+                          )
+                          .withColumn("date", to_date(col("window_start")))) # Add date from window start
     
     return customer_value_df, cancelled_count_df
 
@@ -141,6 +149,7 @@ def write_latest_state_stream(latest_state_df):
              .format("parquet")
              .option("path", f"{OUTPUT_BASE_PATH}/latest_orders")
              .option("checkpointLocation", f"{CHECKPOINT_BASE_PATH}/latest_orders")
+             .partitionBy("date") # Partition by date
              .trigger(processingTime=TRIGGER_INTERVAL)
              .start())
     
@@ -154,6 +163,7 @@ def write_aggregation_streams(customer_value_df, cancelled_count_df):
                       .format("parquet")
                       .option("path", f"{OUTPUT_BASE_PATH}/aggregations/customer_value")
                       .option("checkpointLocation", f"{CHECKPOINT_BASE_PATH}/aggregations/customer_value")
+                      .partitionBy("date") # Partition by date
                       .trigger(processingTime=TRIGGER_INTERVAL)
                       .start())
     
@@ -164,6 +174,7 @@ def write_aggregation_streams(customer_value_df, cancelled_count_df):
                        .format("parquet")
                        .option("path", f"{OUTPUT_BASE_PATH}/aggregations/cancelled_orders")
                        .option("checkpointLocation", f"{CHECKPOINT_BASE_PATH}/aggregations/cancelled_orders")
+                       .partitionBy("date") # Partition by date
                        .trigger(processingTime=TRIGGER_INTERVAL)
                        .start())
     

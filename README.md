@@ -109,8 +109,8 @@ Open a new terminal, enter WSL, and execute the following sequence:
 **Rationale**: The producer intentionally sends ~10% duplicates. We deduplicate based on both ID and time to ensure we don't process the exact same event twice.
 
 ### 4. Latest State Management
-**Approach**: Window function with `row_number()` ordered by `event_time DESC`
-**Rationale**: This effectively handles state transitions (CREATED → UPDATED → CANCELLED) by ensuring we always capture the most recent update for an order within the micro-batch.
+**Approach**: Aggregation using `max(struct(event_time, *))`
+**Rationale**: This deterministically selects the row with the latest `event_time` for each `order_id` within the window, ensuring efficient state updates without keeping all history.
 
 ---
 
@@ -120,10 +120,14 @@ Open a new terminal, enter WSL, and execute the following sequence:
 *   **Pre-filtering**: We filter data (e.g., separating Cancelled orders) *before* aggregation to reduce the amount of data shuffled.
 *   **Coalesce**: Reduced shuffle partitions to 4, which is appropriate for a local execution environment to avoid creating too many small tasks.
 
-### 2. Trigger Interval (10 Seconds)
+### 2. Output Partitioning
+*   **Strategy**: `partitionBy("date")`
+*   **Rationale**: Partitioning output by date significantly improves downstream query performance by allowing partition pruning.
+
+### 3. Trigger Interval (10 Seconds)
 **Rationale**: Balances latency and throughput. A 10-second interval allows multiple events to accumulate, improving batch efficiency and reducing checkpointing overhead compared to default (continuous) processing.
 
-### 3. State Growth Control
+### 4. State Growth Control
 **Mechanisms**: Watermarking automatically evicts old state. Deduplication and window aggregations are also bounded by the watermark, preventing unbounded state growth.
 
 ---
