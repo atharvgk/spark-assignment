@@ -65,7 +65,7 @@ Open a new terminal, enter WSL, and execute the following sequence:
 ---
 
 ## High-Level Architecture
-
+![alt text](image.png)
 
 ### Data Flow
 
