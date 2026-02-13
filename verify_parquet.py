@@ -24,12 +24,8 @@ def check_output(path, name):
         print(f"   ✗ Directory not found: {path}")
         return False
     
-    # Check for parquet files
-    parquet_files = [f for f in os.listdir(path) if f.endswith('.parquet')]
-    if not parquet_files:
-        print(f"   ⚠ Directory exists but no Parquet files yet")
-        print(f"   → Application may still be processing (wait for windows to close)")
-        return False
+    # Allow Spark to read partitions automatically 
+    # (Removed manual check for .parquet files in root dir which fails for partitioned data)
     
     try:
         df = spark.read.parquet(path)
