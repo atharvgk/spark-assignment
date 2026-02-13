@@ -17,7 +17,7 @@ import signal
 # Suppress Py4J / logging noise
 logging.getLogger().setLevel(logging.FATAL)
 
-# configuration
+#configuration
 KAFKA_BOOTSTRAP_SERVERS = "localhost:9092"
 KAFKA_TOPIC = "order_events"
 CHECKPOINT_BASE_PATH = "./output/checkpoint"
@@ -25,7 +25,8 @@ OUTPUT_BASE_PATH = "./output"
 WATERMARK_DELAY = "10 minutes"
 TRIGGER_INTERVAL = "30 seconds"
 
-# schema definition
+#schema definition
+#StructField(name,dataType,nullable)
 order_schema = StructType([
     StructField("order_id", StringType(), False),
     StructField("customer_id", StringType(), False),
@@ -36,6 +37,9 @@ order_schema = StructType([
     StructField("event_time", StringType(), False)
 ])
 
+#spark session initialization
+#Note: The Kafka package is provided via spark-submit --packages flag.
+
 def create_spark_session():
     return (
         SparkSession.builder
@@ -44,6 +48,9 @@ def create_spark_session():
         .config("spark.sql.streaming.schemaInference", "false")
         .getOrCreate()
     )
+
+#1)streaming ingestion & parsing -> Read and parse events from Kafka topic.
+# Returns: DataFrame with parsed order events and event_time as TimestampType.
 
 def read_kafka_stream(spark):
     kafka_df = (
@@ -64,6 +71,10 @@ def read_kafka_stream(spark):
     )
     
     return parsed_df
+
+#2)stateful processing and correctness -> Latest State per Order
+#maintain the latest state per order_id using aggregation.
+# Returns: DataFrame with latest state per order_id.
 
 def process_latest_state(parsed_df):
     from pyspark.sql.functions import max as _max
@@ -103,6 +114,9 @@ def process_latest_state(parsed_df):
     
     return latest_state_df
 
+#3)windowed aggregations
+#return customer_value_df, cancelled_count_df
+
 def compute_windowed_aggregations(parsed_df):
     deduped_df = (
         parsed_df
@@ -140,6 +154,9 @@ def compute_windowed_aggregations(parsed_df):
     
     return customer_value_df, cancelled_count_df
 
+#4)Output and storage
+#write latest order state to parquet with checkpointing
+
 def write_latest_state_stream(latest_state_df):
     query = (
         latest_state_df.writeStream
@@ -153,7 +170,9 @@ def write_latest_state_stream(latest_state_df):
     )
     return query
 
+#write windowed aggregations to parquet with checkpointing
 def write_aggregation_streams(customer_value_df, cancelled_count_df):
+    # Customer value aggregation
     customer_query = (
         customer_value_df.writeStream
         .outputMode("append")
@@ -164,7 +183,7 @@ def write_aggregation_streams(customer_value_df, cancelled_count_df):
         .trigger(processingTime=TRIGGER_INTERVAL)
         .start()
     )
-    
+    # Cancelled orders count
     cancelled_query = (
         cancelled_count_df.writeStream
         .outputMode("append")
@@ -186,7 +205,7 @@ def main():
     spark = create_spark_session()
     spark.sparkContext.setLogLevel("WARN")
 
-    # ✅ SIGINT handler (reliable Ctrl+C)
+    #SIGINT handler (reliable Ctrl+C)
     def shutdown_handler(signum, frame):
         print("\n" + "=" * 80)
         print("Gracefully shutting down streaming queries...")
